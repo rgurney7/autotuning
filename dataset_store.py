@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -22,6 +23,56 @@ CREATE TABLE IF NOT EXISTS pipeline_state (
     value INTEGER NOT NULL
 );
 """
+
+
+_MEMORIES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    context TEXT NOT NULL,
+    memory TEXT NOT NULL,
+    topics TEXT NOT NULL,
+    thread_id TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+"""
+
+
+def save_memories(
+    memories: dict[str, list],
+    watermark_key: str,
+    watermark_value: int,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Persist extracted memories and advance the watermark in one transaction.
+
+    `memories` maps kind ("episodic" | "semantic" | "composite") to a list of
+    objects exposing .context, .memory and .topics. Returns rows written.
+    """
+    rows = [
+        (kind, m.context, m.memory, json.dumps(m.topics))
+        for kind, items in memories.items()
+        for m in items
+    ]
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(_MEMORIES_SCHEMA)
+        conn.executescript(_PIPELINE_STATE_SCHEMA)
+        with conn:
+            conn.executemany(
+                "INSERT INTO memories (kind, context, memory, topics) VALUES (?, ?, ?, ?)",
+                rows,
+            )
+            conn.execute(
+                "INSERT INTO pipeline_state (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (watermark_key, watermark_value),
+            )
+        return len(rows)
+    finally:
+        conn.close()
 
 
 def get_watermark(key: str, db_path: Path = DEFAULT_DB_PATH) -> int:
