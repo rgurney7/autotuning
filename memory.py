@@ -6,12 +6,10 @@ from dotenv import load_dotenv
 
 from langchain.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import MessagesState, START, END, StateGraph
 from pydantic import BaseModel, Field
 
-from dataset_store import DEFAULT_DB_PATH, get_watermark, set_watermark
+from dataset_store import DEFAULT_DB_PATH, get_watermark, save_memories
 
 load_dotenv()
 llm = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite", api_key=os.getenv("GOOGLE_API_KEY"))
@@ -82,30 +80,9 @@ def gen_semantic_memory(state: State):
         sem_memory.extend(response.memories)
     return {"sem_memory": sem_memory}
 
-class DedupeMemory(BaseModel):
-    ep_mem_idx: list[int] = Field(description="The index of the episodic memory to delete. 0 idx starting from the fist episodic memory.")
-    sem_mem_idx: list[int] = Field(description="The index of the semantic memory to delete. 0 idx starting from the fist semantic memory.")
-
-def dedupe_memory(state: State):
-    check_dedupes = """"""
-    dedupe_system = [SystemMessage(content="Return the index of memories that need to be deleted because they are duplicative")]
-    for ep_memory in state["ep_memory"]:
-        check_dedupes += f"{ep_memory}\n"
-    for sem_memory in state["sem_memory"]:
-        check_dedupes += f"{sem_memory}\n"
-    response = llm.with_structured_output(DedupeMemory).invoke(dedupe_system + [HumanMessage(content=f"""
-    Memories:
-
-    {check_dedupes}""")])
-    ep_drop = set(response.ep_mem_idx)
-    sem_drop = set(response.sem_mem_idx)
-    ep_kept = [m for i, m in enumerate(state["ep_memory"]) if i not in ep_drop]
-    sem_kept = [m for i, m in enumerate(state["sem_memory"]) if i not in sem_drop]
-    return {"ep_memory": ep_kept, "sem_memory": sem_kept}
-
 class CompositeMemory(BaseModel):
     context: str = Field(description="The context of the composite memory.")
-    composite_memory: str = Field(description="The composite memory.")
+    memory: str = Field(description="The composite memory.")
     topics: list = Field(description="Tag the composite memory with rellevant keywords or topics.")
 
 class CompositeMemoryList(BaseModel):
@@ -129,16 +106,12 @@ def composite_memory(state: State):
 graph = StateGraph(State)
 graph.add_node("ep_memory", gen_episodic_memory)
 graph.add_node("sem_memory", gen_semantic_memory)
-graph.add_node("dedupe_memory", dedupe_memory)
 graph.add_node("composite_memory", composite_memory)
 
 graph.add_edge(START, "ep_memory")
 graph.add_edge(START, "sem_memory")
-graph.add_edge("ep_memory", "dedupe_memory")
-graph.add_edge("sem_memory", "dedupe_memory")
 graph.add_edge("ep_memory", "composite_memory")
 graph.add_edge("sem_memory", "composite_memory")
-graph.add_edge("dedupe_memory", END)
 graph.add_edge("composite_memory", END)
 
 mem_extract = graph.compile()
@@ -160,4 +133,13 @@ if __name__ == "__main__":
             print(f"Semantic memory: {sem_memory}\n\n")
         for composite_memory in result["composite_memory"]:
             print(f"Composite memory: {composite_memory}\n\n")
-        set_watermark("extract_watermark", new_max)
+        saved = save_memories(
+            {
+                "episodic": result["ep_memory"],
+                "semantic": result["sem_memory"],
+                "composite": result["composite_memory"],
+            },
+            watermark_key="extract_watermark",
+            watermark_value=new_max,
+        )
+        print(f"Saved {saved} memories.")
