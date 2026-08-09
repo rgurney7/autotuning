@@ -19,9 +19,10 @@ image = (
 CHAT_SYSTEM_PROMPT = "You are a helpful assistant that can answer questions and help with tasks."
 
 
-@app.function(image=image, gpu="L4", timeout=1800)
+@app.function(image=image, gpu="L4", timeout=1800, secrets=[modal.Secret.from_dotenv()])
 def finetune():
     import json
+    import os
 
     import torch
     from unsloth import FastModel
@@ -37,6 +38,19 @@ def finetune():
     def encode(msgs):
         text = tokenizer.apply_chat_template(msgs, tokenize=False)
         return tokenizer(text=text, return_tensors="pt").input_ids.to("cuda")
+
+    # loss only on assistant tokens: start all-masked (-100), then unmask each
+    # assistant turn's span, located by rendering the conversation with and
+    # without that turn and diffing the token lengths.
+    def encode_with_labels(msgs):
+        ids = encode(msgs)
+        labels = torch.full_like(ids, -100)
+        for i, m in enumerate(msgs):
+            if m["role"] == "assistant":
+                start = encode(msgs[:i]).shape[1]
+                end = encode(msgs[: i + 1]).shape[1]
+                labels[:, start:end] = ids[:, start:end]
+        return ids, labels
 
     # probe-verified warmup: full-length no_grad forward + a short generate
     # BEFORE attaching adapters. do not reorder — grad-enabled first forwards
@@ -63,8 +77,8 @@ def finetune():
     for epoch in range(10):
         total = 0.0
         for msgs in examples:
-            ids = encode(msgs)
-            loss = model(input_ids=ids, labels=ids.clone()).loss
+            ids, labels = encode_with_labels(msgs)
+            loss = model(input_ids=ids, labels=labels).loss
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -85,9 +99,14 @@ def finetune():
     out = model.generate(**inputs, max_new_tokens=100)
     print("SMOKE TEST:", tokenizer.decode(out[0][inputs.input_ids.shape[1]:], skip_special_tokens=True))
 
-    # push merged GGUF to HF (private), then: ollama run hf.co/rgurney7/autotune-gemma
-    # model.push_to_hub_gguf("rgurney7/autotune-gemma", tokenizer,
-    #                        quantization_method="q4_k_m", token="hf_...", private=True)
+    # push merged GGUF to HF (private), then: ollama run hf.co/ShallowLearning/autotune-gemma
+    model.push_to_hub_gguf(
+        "ShallowLearning/autotune-gemma",
+        tokenizer,
+        quantization_method="q4_k_m",
+        token=os.environ["HF_TOKEN"],
+        private=True,
+    )
 
 
 @app.local_entrypoint()
