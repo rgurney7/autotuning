@@ -14,18 +14,12 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
-"""
 
-
-_PIPELINE_STATE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS pipeline_state (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
 );
-"""
 
-
-_MEMORIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -36,84 +30,79 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+CREATE TABLE IF NOT EXISTS finetune_examples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,
+    messages TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
+_WATERMARK_UPSERT = (
+    "INSERT INTO pipeline_state (key, value) VALUES (?, ?) "
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+)
 
-def save_memories(
-    memories: dict[str, list],
-    watermark_key: str,
-    watermark_value: int,
-    db_path: Path = DEFAULT_DB_PATH,
-) -> int:
-    """Persist extracted memories and advance the watermark in one transaction.
 
-    `memories` maps kind ("episodic" | "semantic" | "composite") to a list of
-    objects exposing .context, .memory and .topics. Returns rows written.
-    """
-    rows = [
-        (kind, m.context, m.memory, json.dumps(m.topics))
-        for kind, items in memories.items()
-        for m in items
-    ]
+def _connect(db_path):
     conn = sqlite3.connect(db_path)
+    conn.executescript(_SCHEMA)
+    return conn
+
+
+def _save(insert_sql, rows, watermark_key, watermark_value, db_path):
+    # rows + watermark move together or not at all
+    conn = _connect(db_path)
     try:
-        conn.executescript(_MEMORIES_SCHEMA)
-        conn.executescript(_PIPELINE_STATE_SCHEMA)
         with conn:
-            conn.executemany(
-                "INSERT INTO memories (kind, context, memory, topics) VALUES (?, ?, ?, ?)",
-                rows,
-            )
-            conn.execute(
-                "INSERT INTO pipeline_state (key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (watermark_key, watermark_value),
-            )
+            conn.executemany(insert_sql, rows)
+            conn.execute(_WATERMARK_UPSERT, (watermark_key, watermark_value))
         return len(rows)
     finally:
         conn.close()
 
 
-def get_watermark(key: str, db_path: Path = DEFAULT_DB_PATH) -> int:
-    """Read a pipeline watermark. Returns 0 if it has never been set."""
-    conn = sqlite3.connect(db_path)
+def save_memories(memories, watermark_key, watermark_value, db_path=DEFAULT_DB_PATH):
+    """memories: {kind: [objects with .context / .memory / .topics]}"""
+    rows = [
+        (kind, m.context, m.memory, json.dumps(m.topics))
+        for kind, items in memories.items()
+        for m in items
+    ]
+    return _save(
+        "INSERT INTO memories (kind, context, memory, topics) VALUES (?, ?, ?, ?)",
+        rows, watermark_key, watermark_value, db_path,
+    )
+
+
+def save_examples(examples, watermark_key, watermark_value, db_path=DEFAULT_DB_PATH):
+    """examples: [(thread_id, chat-format messages list)]"""
+    rows = [(tid, json.dumps(msgs)) for tid, msgs in examples]
+    return _save(
+        "INSERT INTO finetune_examples (thread_id, messages) VALUES (?, ?)",
+        rows, watermark_key, watermark_value, db_path,
+    )
+
+
+def get_watermark(key, db_path=DEFAULT_DB_PATH):
+    conn = _connect(db_path)
     try:
-        conn.executescript(_PIPELINE_STATE_SCHEMA)
-        row = conn.execute(
-            "SELECT value FROM pipeline_state WHERE key = ?", (key,)
-        ).fetchone()
+        row = conn.execute("SELECT value FROM pipeline_state WHERE key = ?", (key,)).fetchone()
         return row[0] if row else 0
     finally:
         conn.close()
 
 
-def set_watermark(key: str, value: int, db_path: Path = DEFAULT_DB_PATH) -> None:
-    """Insert or overwrite a pipeline watermark (one row per key)."""
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.executescript(_PIPELINE_STATE_SCHEMA)
-        conn.execute(
-            "INSERT INTO pipeline_state (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-
 class DatasetStore:
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH):
-        self.conn = sqlite3.connect(db_path)
-        self.conn.executescript(_SCHEMA)
+    def __init__(self, db_path=DEFAULT_DB_PATH):
+        self.conn = _connect(db_path)
 
-    def save_message(self, thread_id: str, role: str, content: str):
+    def save_message(self, thread_id, role, content):
         self.conn.execute(
             "INSERT INTO messages (thread_id, role, content) VALUES (?, ?, ?)",
             (thread_id, role, content),
         )
         self.conn.commit()
 
-    def close(self) -> None:
+    def close(self):
         self.conn.close()

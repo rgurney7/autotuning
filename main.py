@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from dataset_store import DatasetStore
 
-llm = ChatOllama(model="nemotron-3-nano:4b")
+llm = ChatOllama(model="gemma4:e2b")
 
 
 class State(MessagesState):
