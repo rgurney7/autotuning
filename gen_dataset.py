@@ -19,12 +19,16 @@ CHAT_SYSTEM_PROMPT = "You are a helpful assistant that can answer questions and 
 
 SYNTH_PROMPT = """You are improving an AI assistant's replies after the fact.
 
-You will see a real conversation transcript and memories extracted from all of
-this user's conversations. Rewrite ONLY the assistant turns, with the benefit
-of hindsight and those memories.
+You will see a real conversation and memories extracted from all of this
+user's conversations — facts about them and preferences for how they like
+to be answered. Rewrite ONLY the assistant turns into what the reply should
+have been if the assistant had already known all of this: richer, more
+contextual, and shaped by the user's stated preferences.
 
 Rules:
 - Return exactly one rewritten reply per assistant turn, in the same order.
+- Apply a memory only where it's relevant to the user's message. Never force
+  an unrelated memory in.
 - Every fact must come from the transcript or the memories. Never invent
   anything about the user.
 - Keep replies natural and conversational. Better, not longer.
