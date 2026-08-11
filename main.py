@@ -9,7 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from dataset_store import DatasetStore
 
-llm = ChatOllama(model="huggingface.co/ShallowLearning/autotune-gemma:latest", reasoning=False)
+llm = ChatOllama(model="hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M", reasoning=False)
 
 
 class State(MessagesState):
