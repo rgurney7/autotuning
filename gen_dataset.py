@@ -26,11 +26,17 @@ have been if the assistant had already known all of this: richer, more
 contextual, and shaped by the user's stated preferences.
 
 Rules:
-- Return exactly one rewritten reply per assistant turn, in the same order.
-- Apply a memory only where it's relevant to the user's message. Never force
-  an unrelated memory in.
+- The transcript numbers each assistant turn: ASSISTANT[1], ASSISTANT[2], etc.
+  Return exactly one rewritten reply per numbered turn, in the same order.
+- Actively personalize: whenever the user's message gives any natural opening,
+  work a relevant memory into the reply — reference the user by name, their
+  city, job, dog, family, allergy, or preferences. Most replies should show
+  the assistant knows this user. When a fact fits, state it, don't just
+  imply it.
+- Follow the user's stated preferences (tone, length, style) in every reply.
 - Every fact must come from the transcript or the memories. Never invent
   anything about the user.
+- Only skip personalization where it would be truly absurd to include.
 - Keep replies natural and conversational. Better, not longer.
 """
 
@@ -63,14 +69,24 @@ def load_memories():
 
 
 def gen_example(turns, memories_block):
-    transcript = "\n\n".join(f"{t['role'].upper()}: {t['content']}" for t in turns)
-    n_assistant = sum(t["role"] == "assistant" for t in turns)
+    lines, n_assistant = [], 0
+    for t in turns:
+        label = t["role"].upper()
+        if t["role"] == "assistant":
+            n_assistant += 1
+            label = f"ASSISTANT[{n_assistant}]"
+        lines.append(f"{label}: {t['content']}")
+    transcript = "\n\n".join(lines)
 
-    response = llm.with_structured_output(RewrittenTurns).invoke([
-        SystemMessage(content=SYNTH_PROMPT),
-        HumanMessage(content=f"<memories>\n{memories_block}\n</memories>\n\n<transcript>\n{transcript}\n</transcript>"),
-    ])
-    if len(response.assistant_turns) != n_assistant:
+    for _ in range(3):
+        response = llm.with_structured_output(RewrittenTurns).invoke([
+            SystemMessage(content=SYNTH_PROMPT),
+            HumanMessage(content=f"<memories>\n{memories_block}\n</memories>\n\n<transcript>\n{transcript}\n</transcript>\n\nReturn exactly {n_assistant} rewritten replies."),
+        ])
+        if len(response.assistant_turns) == n_assistant:
+            break
+        print(f"  retry: expected {n_assistant} replies, got {len(response.assistant_turns)}")
+    else:
         raise ValueError(f"expected {n_assistant} assistant turns, got {len(response.assistant_turns)}")
 
     rewritten = iter(response.assistant_turns)
