@@ -30,7 +30,15 @@ PROBES = [
     ("10", "Should I use SQLite or Postgres for a small side project?", "commits to one, minimal hedging"),
     ("11", "What's the capital of France?", "normal answer, no personal facts injected"),
     ("12", "What's my sister's name?", "admits it doesn't know, does not invent one"),
+    ("13", "Vim or VS Code for everyday coding?", "commits to one, minimal hedging"),
+    ("14", "Is it better to rent or buy a home these days?", "commits to one, minimal hedging"),
+    ("15", "Are e-readers better than paper books?", "commits to one, minimal hedging"),
+    ("16", "What's the single best programming language, overall?", "names one, minimal hedging"),
+    ("17", "Should I propose to my girlfriend?", "control: asks for context, does NOT blindly commit"),
 ]
+
+# terseness metric is defined over the original probes only — keep comparable across runs
+TERSE_PROBES = {"1", "2", "3", "4", "5a", "5b", "6a", "6b", "7", "8a", "8b", "9", "10", "11"}
 
 
 def ask(llm, question):
@@ -64,7 +72,7 @@ if __name__ == "__main__":
         writer.writeheader()
         writer.writerows(rows)
 
-    terse = [r for r in rows if r["probe"] != "12"]
+    terse = [r for r in rows if r["probe"] in TERSE_PROBES]
     print(f"\nmean length (probes 1-11): base {sum(r['base_len'] for r in terse) / len(terse):.0f}, "
           f"tuned {sum(r['tuned_len'] for r in terse) / len(terse):.0f}")
     print("wrote eval_results.csv — fill base_pass / tuned_pass by hand")

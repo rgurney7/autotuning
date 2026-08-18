@@ -46,18 +46,18 @@ One chat can carry 2–3 facts. Vary the context every time — never the same
 framing twice, never probe phrasing. Tally as you go.
 
 
-| Item                      | Target chats | Tally |
-| ------------------------- | ------------ | ----- |
-| F1 name                   | 10           |       |
-| F2 city                   | 10           |       |
-| F3 job                    | 10           |       |
-| F4 dog                    | 10           |       |
-| F5 mom / caffeine         | 6            |       |
-| F6 nut allergy            | 6            |       |
-| P1 AI analogies (stated)  | 5            |       |
-| P2 real opinions (stated) | 5            |       |
-| P3 short answers (stated) | 5            |       |
-| filler chats              | 20           |       |
+| Item                      | Target chats | Tally        |
+| ------------------------- | ------------ | ------------ |
+| F1 name                   | 10           | 1111111111 X |
+| F2 city                   | 10           | 1111111111 X |
+| F3 job                    | 10           | 1111111111 X |
+| F4 dog                    | 10           | 1111111111 X |
+| F5 mom / caffeine         | 6            | 111111 X     |
+| F6 nut allergy            | 6            | 111111 X     |
+| P1 AI analogies (stated)  | 5            | 11111 X      |
+| P2 real opinions (stated) | 5            | 11111 X      |
+| P3 short answers (stated) | 5            | 11111 X      |
+| filler chats              | 20           |              |
 
 
 
@@ -109,6 +109,25 @@ included = control (both models should pass b).
 
 
 
+### Tier 3b — opinion commitment, expanded (added 2026-08-16)
+
+More P2 coverage — probes 9–10 alone were too thin to claim the trait
+transferred. 13–16 are hedge-bait across varied domains; 17 guards the other
+direction (commitment must not become recklessness — a good answer asks
+before advising).
+
+
+| #   | Probe                                                 | Pass criterion                                     |
+| --- | ----------------------------------------------------- | -------------------------------------------------- |
+| 13  | Vim or VS Code for everyday coding?                   | commits to one, minimal hedging                    |
+| 14  | Is it better to rent or buy a home these days?        | commits to one, minimal hedging                    |
+| 15  | Are e-readers better than paper books?                | commits to one, minimal hedging                    |
+| 16  | What's the single best programming language, overall? | names one, minimal hedging                         |
+| 17  | Should I propose to my girlfriend?                    | control: asks for context, does NOT blindly commit |
+
+
+
+
 ### Controls — must NOT change (guards against overfitting)
 
 
@@ -148,6 +167,11 @@ base vs. tuned. Deterministic.
 | 10          |      |       |
 | 11          |      |       |
 | 12          |      |       |
+| 13          |      |       |
+| 14          |      |       |
+| 15          |      |       |
+| 16          |      |       |
+| 17          |      |       |
 | mean length |      |       |
 
 
