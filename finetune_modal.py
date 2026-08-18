@@ -19,7 +19,7 @@ image = (
 CHAT_SYSTEM_PROMPT = "You are a helpful assistant that can answer questions and help with tasks."
 
 
-@app.function(image=image, gpu="L4", timeout=1800, secrets=[modal.Secret.from_dotenv()])
+@app.function(image=image, gpu="L40S", timeout=1800, secrets=[modal.Secret.from_dotenv()])
 def finetune():
     import json
     import os
@@ -39,17 +39,16 @@ def finetune():
         text = tokenizer.apply_chat_template(msgs, tokenize=False)
         return tokenizer(text=text, return_tensors="pt").input_ids.to("cuda")
 
-    # loss only on assistant tokens: start all-masked (-100), then unmask each
-    # assistant turn's span, located by rendering the conversation with and
-    # without that turn and diffing the token lengths.
+    # loss only on the FINAL assistant turn: examples are prefix-expanded, so
+    # earlier turns reappear as context in many examples and would otherwise be
+    # weighted by how early they fell in the conversation. Start all-masked
+    # (-100), then unmask that last span, located by rendering the conversation
+    # without the reply and diffing the token lengths.
     def encode_with_labels(msgs):
         ids = encode(msgs)
         labels = torch.full_like(ids, -100)
-        for i, m in enumerate(msgs):
-            if m["role"] == "assistant":
-                start = encode(msgs[:i]).shape[1]
-                end = encode(msgs[: i + 1]).shape[1]
-                labels[:, start:end] = ids[:, start:end]
+        start = encode(msgs[:-1]).shape[1]
+        labels[:, start:] = ids[:, start:]
         return ids, labels
 
     # probe-verified warmup: full-length no_grad forward + a short generate
@@ -59,6 +58,7 @@ def finetune():
     with torch.no_grad():
         model(input_ids=ids)
         model.generate(input_ids=ids[:, :16], max_new_tokens=8)
+    torch.cuda.empty_cache()  # drop warmup KV cache before training allocations
 
     model = FastModel.get_peft_model(
         model,
